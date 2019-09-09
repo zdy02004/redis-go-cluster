@@ -119,3 +119,4 @@ If you have any question, please email me wuxibin2012@gmail.com.
 
 ## License
 redis-go-cluster is available under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0.html).
+"# redis-go-cluster" 
