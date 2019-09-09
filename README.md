@@ -22,14 +22,14 @@ to its high efficiency and low lantency.
 ## Installation
 Install redis-go-cluster with go tool:
 ```
-    go get github.com/chasex/redis-go-cluster
+    go get github.com/zdy02004/redis-go-cluster
 ```
     
 ## Usage
 To use redis cluster, you need import the package and create a new cluster client
 with an options:
 ```go
-import "github.com/chasex/redis-go-cluster"
+import "github.com/zdy02004/redis-go-cluster"
 
 cluster, err := redis.NewCluster(
     &redis.Options{
@@ -39,7 +39,7 @@ cluster, err := redis.NewCluster(
 	WriteTimeout: 50 * time.Millisecond,
 	KeepAlive: 16,
 	AliveTime: 60 * time.Second,
-    })
+    },"your password" )
 ```
 
 ### Basic
