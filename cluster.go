@@ -63,8 +63,121 @@ type updateMesg struct {
     movedTime	    time.Time
 }
 
+func (cluster *Cluster) update2(node *redisNode,passwd string ) error {
+     _, err0 := node.do("auth", passwd)
+    if err0 != nil {
+	   return err0
+    }
+    
+    info, err := Values(node.do("CLUSTER", "SLOTS"))
+    if err != nil {
+	return err
+    }
+
+    errFormat := fmt.Errorf("update: %s invalid response", node.address)
+
+    var nslots int
+    slots := make(map[string][]uint16)
+
+    for _, i := range info {
+	m, err := Values(i, err)
+	if err != nil || len(m) < 3 {
+	    return errFormat
+	}
+
+	start, err := Int(m[0], err)
+	if err != nil {
+	    return errFormat
+	}
+
+	end, err := Int(m[1], err)
+	if err != nil {
+	    return errFormat
+	}
+
+	t, err := Values(m[2], err)
+	if err != nil || len(t) < 2 {
+	    return errFormat
+	}
+
+	var ip string
+	var port int
+
+	_, err = Scan(t, &ip, &port)
+	if err != nil {
+	    return errFormat
+	}
+	addr := fmt.Sprintf("%s:%d", ip, port)
+
+	slot, ok := slots[addr]
+	if !ok {
+	    slot = make([]uint16, 0, 2)
+	}
+
+	nslots += end - start + 1
+
+	slot = append(slot, uint16(start))
+	slot = append(slot , uint16(end))
+
+	slots[addr] = slot
+    }
+
+    // TODO: Is full coverage really needed?
+    if nslots != kClusterSlots {
+	return fmt.Errorf("update: %s slots not full covered", node.address)
+    }
+
+    cluster.rwLock.Lock()
+    defer cluster.rwLock.Unlock()
+
+    t := time.Now()
+    cluster.updateTime = t
+
+    for addr, slot := range slots {
+	node, ok := cluster.nodes[addr]
+	if !ok {
+	    node = &redisNode {
+		address: addr,
+		connTimeout: cluster.connTimeout,
+		readTimeout: cluster.readTimeout,
+		writeTimeout: cluster.writeTimeout,
+		keepAlive: cluster.keepAlive,
+		aliveTime: cluster.aliveTime,
+	    }
+	}
+
+	n := len(slot)
+	for i := 0; i < n - 1; i += 2 {
+	    start := slot[i]
+	    end := slot[i+1]
+
+	    for j := start; j <= end; j++ {
+		cluster.slots[j] = node
+	    }
+	}
+
+	node.updateTime = t
+	 _, err01 := node.do("auth", passwd)
+    if err01 != nil {
+	   return err01
+    }
+	cluster.nodes[addr] = node
+    }
+
+    // shrink
+    for addr, node := range cluster.nodes {
+	if node.updateTime != t {
+	    node.shutdown()
+
+	    delete(cluster.nodes, addr)
+	}
+    }
+
+    return nil
+}
+
 // NewCluster create a new redis cluster client with specified options.
-func NewCluster(options *Options) (*Cluster, error) {
+func NewCluster(options *Options,pwssd string) (*Cluster, error) {
     cluster := &Cluster{
 	nodes: make(map[string]*redisNode),
 	connTimeout: options.ConnTimeout,
@@ -85,11 +198,11 @@ func NewCluster(options *Options) (*Cluster, error) {
 	    aliveTime: options.AliveTime,
 	}
 
-	err := cluster.update(node)
+	err := cluster.update2(node,pwssd)
 	if err != nil {
 	    continue
 	} else {
-	    go cluster.handleUpdate()
+	    go cluster.handleUpdate(pwssd)
 	    return cluster, nil
 	}
     }
@@ -415,13 +528,13 @@ func (cluster *Cluster) update(node *redisNode) error {
     return nil
 }
 
-func (cluster *Cluster) handleUpdate() {
+func (cluster *Cluster) handleUpdate(pwssd string) {
     for {
 	msg := <-cluster.updateList
 
 	// TODO: control update frequency by updateTime and movedTime?
 
-	err := cluster.update(msg.node)
+	err := cluster.update2(msg.node,pwssd)
 	if err != nil {
 	    log.Printf("handleUpdate: %v\n", err)
 	}
